@@ -24,7 +24,7 @@ export function mountMap(
   round: Round,
   split: SplitKind,
   onResize: () => void,
-): { getSnapshot: () => MapSnapshot; showResult: (pieceOf: number[] | null, ideal: Cut | null) => void; exportPng: (title: string, score: number) => void; destroy: () => void } {
+): { getSnapshot: () => MapSnapshot; showResult: (pieceOf: number[] | null, ideal: Cut | null) => void; exportPng: (title: string, score: number) => void; loadRound: (next: Round, nextSplit: SplitKind) => void; destroy: () => void } {
   stage.replaceChildren();
   const host = document.createElement("div");
   host.className = "basemap";
@@ -53,7 +53,8 @@ export function mountMap(
     maxZoom: 19,
     crossOrigin: "anonymous",
   }).addTo(map);
-  const frame = frameOfFit(round.fit, round.cells, round.draw);
+  let current = round;
+  let frame = frameOfFit(current.fit, current.cells, current.draw);
 
   let cut = initialCut(split);
   let ideal: Cut | null = null;
@@ -61,14 +62,38 @@ export function mountMap(
   let width = 0;
   let height = 0;
   let drag: Drag | null = null;
+  let viewKey = "";
+  let originLeft = 0;
+  let originTop = 0;
+  let sawResize = false;
+  const halos: SVGLineElement[] = [];
+  const inks: SVGLineElement[] = [];
+  const ideals: SVGLineElement[] = [];
+  const handles: SVGCircleElement[] = [];
+  let structureKey = "";
+  let viewBox = "";
+
+  const cacheOrigin = () => {
+    const rect = stage.getBoundingClientRect();
+    originLeft = rect.left;
+    originTop = rect.top;
+  };
 
   const redraw = () => {
-    width = stage.clientWidth;
-    height = stage.clientHeight;
-    if (width < 20 || height < 20) return;
-    map.invalidateSize(false);
+    const nextW = stage.clientWidth;
+    const nextH = stage.clientHeight;
+    if (nextW < 20 || nextH < 20) return;
+    const sizeChanged = nextW !== width || nextH !== height;
+    width = nextW;
+    height = nextH;
+    cacheOrigin();
     const view = osmViewFor(frame, width, height);
-    map.setView([view.lat, view.lon], view.zoom, { animate: false });
+    const key = `${width}x${height}|${view.lat.toFixed(6)}|${view.lon.toFixed(6)}|${view.zoom.toFixed(4)}`;
+    if (key !== viewKey) {
+      viewKey = key;
+      if (sizeChanged) map.invalidateSize(false);
+      map.setView([view.lat, view.lon], view.zoom, { animate: false });
+    }
     paintCanvas();
     paintSvg();
   };
@@ -90,8 +115,12 @@ export function mountMap(
 
   const paintCanvas = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+    const nextW = Math.round(width * dpr);
+    const nextH = Math.round(height * dpr);
+    if (canvas.width !== nextW || canvas.height !== nextH) {
+      canvas.width = nextW;
+      canvas.height = nextH;
+    }
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -108,35 +137,51 @@ export function mountMap(
   };
 
   const paintSvg = () => {
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const box = `0 0 ${width} ${height}`;
+    if (viewBox !== box) {
+      viewBox = box;
+      svg.setAttribute("viewBox", box);
+    }
     const pixel = toPixels(cut, width, height);
     const lines = cutLines(pixel, width, height);
     const idealLines = ideal ? cutLines(ideal, width, height) : [];
-    const handles = locked ? [] : handleMarks(pixel, width, height);
-    svg.innerHTML = `${lines
-      .map(
-        (line) =>
-          `<line x1="${line[0]}" y1="${line[1]}" x2="${line[2]}" y2="${line[3]}" stroke="var(--ink)" stroke-width="7" stroke-linecap="round" opacity="0.28"/>
-           <line x1="${line[0]}" y1="${line[1]}" x2="${line[2]}" y2="${line[3]}" stroke="var(--card)" stroke-width="3" stroke-linecap="round"/>`,
-      )
-      .join("")}
-      ${idealLines
-        .map(
-          (line) =>
-            `<line x1="${line[0]}" y1="${line[1]}" x2="${line[2]}" y2="${line[3]}" stroke="var(--ideal)" stroke-width="3" stroke-dasharray="8 7" stroke-linecap="round"/>`,
-        )
-        .join("")}
-      ${handles
-        .map(
-          (handle) =>
-            `<circle cx="${handle.x}" cy="${handle.y}" r="${handle.key === "center" ? 15 : 12}" fill="var(--card)" stroke="var(--ink)" stroke-width="2.5"/>`,
-        )
-        .join("")}`;
+    const marks = locked ? [] : handleMarks(pixel, width, height);
+    const key = `${lines.length}|${idealLines.length}|${marks.map((mark) => mark.key).join(",")}`;
+    if (key !== structureKey) {
+      structureKey = key;
+      halos.length = 0;
+      inks.length = 0;
+      ideals.length = 0;
+      handles.length = 0;
+      for (let i = 0; i < lines.length; i++) {
+        halos.push(svgLine("var(--ink)", "7", { opacity: "0.28" }));
+        inks.push(svgLine("var(--card)", "3"));
+      }
+      for (let i = 0; i < idealLines.length; i++) ideals.push(svgLine("var(--ideal)", "3", { "stroke-dasharray": "8 7" }));
+      for (const mark of marks) handles.push(svgHandle(mark.key === "center" ? "15" : "12"));
+      svg.replaceChildren(...halos, ...inks, ...ideals, ...handles);
+    }
+    lines.forEach((line, index) => {
+      const halo = halos[index];
+      const ink = inks[index];
+      if (halo) placeLine(halo, line);
+      if (ink) placeLine(ink, line);
+    });
+    idealLines.forEach((line, index) => {
+      const el = ideals[index];
+      if (el) placeLine(el, line);
+    });
+    marks.forEach((mark, index) => {
+      const el = handles[index];
+      if (!el) return;
+      el.setAttribute("cx", String(mark.x));
+      el.setAttribute("cy", String(mark.y));
+    });
   };
 
   const projectCells = (): ScreenCell[] => {
     const cells: ScreenCell[] = [];
-    for (const cell of round.cells) {
+    for (const cell of current.cells) {
       const point = map.latLngToContainerPoint([cell.lat, cell.lon]);
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
       cells.push({ x: point.x, y: point.y, pop: cell.pop });
@@ -146,6 +191,7 @@ export function mountMap(
 
   const onPointerDown = (event: PointerEvent) => {
     if (locked || width < 20) return;
+    cacheOrigin();
     const point = local(event);
     const hit = hitTest(point.x, point.y);
     if (!hit) return;
@@ -159,11 +205,17 @@ export function mountMap(
     const point = local(event);
     applyDrag(point.x, point.y);
     paintSvg();
+    event.preventDefault();
   };
 
   const onPointerUp = (event: PointerEvent) => {
     drag = null;
     if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+    if (sawResize) {
+      sawResize = false;
+      redraw();
+      if (locked) onResize();
+    }
   };
 
   const applyDrag = (x: number, y: number) => {
@@ -218,26 +270,44 @@ export function mountMap(
     return null;
   };
 
-  const local = (event: PointerEvent) => {
-    const rect = stage.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  };
+  const local = (event: PointerEvent) => ({
+    x: event.clientX - originLeft,
+    y: event.clientY - originTop,
+  });
 
   const observer = new ResizeObserver(() => {
+    const nextW = stage.clientWidth;
+    const nextH = stage.clientHeight;
+    if (nextW === width && nextH === height) return;
+    if (drag) {
+      sawResize = true;
+      return;
+    }
     redraw();
     if (locked) onResize();
   });
   observer.observe(stage);
-  const onTheme = () => redraw();
-  window.addEventListener("popsplit-theme", onTheme);
   svg.addEventListener("pointerdown", onPointerDown);
   svg.addEventListener("pointermove", onPointerMove);
   svg.addEventListener("pointerup", onPointerUp);
   svg.addEventListener("pointercancel", onPointerUp);
   redraw();
 
+  const loadRound = (next: Round, nextSplit: SplitKind) => {
+    current = next;
+    frame = frameOfFit(next.fit, next.cells, next.draw);
+    cut = initialCut(nextSplit);
+    ideal = null;
+    locked = false;
+    drag = null;
+    viewKey = "";
+    structureKey = "";
+    redraw();
+  };
+
   return {
     getSnapshot: () => ({ cells: projectCells(), cut: toPixels(cut, width, height), width, height }),
+    loadRound,
     showResult: (nextPieces, nextIdeal) => {
       ideal = nextIdeal;
       locked = nextPieces != null;
@@ -280,7 +350,6 @@ export function mountMap(
     },
     destroy: () => {
       observer.disconnect();
-      window.removeEventListener("popsplit-theme", onTheme);
       svg.removeEventListener("pointerdown", onPointerDown);
       svg.removeEventListener("pointermove", onPointerMove);
       svg.removeEventListener("pointerup", onPointerUp);
@@ -288,6 +357,33 @@ export function mountMap(
       map.remove();
     },
   };
+}
+
+function svgLine(stroke: string, width: string, extra?: Record<string, string>): SVGLineElement {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  el.setAttribute("stroke", stroke);
+  el.setAttribute("stroke-width", width);
+  el.setAttribute("stroke-linecap", "round");
+  if (extra) {
+    for (const [name, value] of Object.entries(extra)) el.setAttribute(name, value);
+  }
+  return el;
+}
+
+function svgHandle(radius: string): SVGCircleElement {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  el.setAttribute("r", radius);
+  el.setAttribute("fill", "var(--card)");
+  el.setAttribute("stroke", "var(--ink)");
+  el.setAttribute("stroke-width", "2.5");
+  return el;
+}
+
+function placeLine(el: SVGLineElement, line: number[]): void {
+  el.setAttribute("x1", String(line[0] ?? 0));
+  el.setAttribute("y1", String(line[1] ?? 0));
+  el.setAttribute("x2", String(line[2] ?? 0));
+  el.setAttribute("y2", String(line[3] ?? 0));
 }
 
 function paintTiles(ctx: CanvasRenderingContext2D, host: HTMLElement, dpr: number) {

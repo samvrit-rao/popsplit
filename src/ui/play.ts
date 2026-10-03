@@ -57,6 +57,17 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
   const sheet = root.querySelector<HTMLElement>("[data-sheet]")!;
   const lock = root.querySelector<HTMLButtonElement>("[data-lock]")!;
   const dock = root.querySelector<HTMLElement>(".dock")!;
+  const copy = root.querySelector<HTMLElement>(".play-copy")!;
+  let alive = true;
+  let swapping = false;
+  let timer = 0;
+  const motion = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const later = (fn: () => void, ms: number) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      if (alive) fn();
+    }, ms);
+  };
 
   const hints: Record<SplitKind, string> = {
     halves: "Drag either end or the line. The frame is the region you split. No percentages until you lock in.",
@@ -68,29 +79,44 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
     const round = options.rounds[index];
     if (!round) return;
     showing = false;
+    swapping = true;
     sheet.classList.remove("open");
-    sheet.innerHTML = "";
     dock.classList.remove("away");
-    lock.disabled = false;
-    map?.destroy();
-    const total = options.endless ? null : options.rounds.length;
-    const soFar = scores.reduce((sum, score) => sum + score, 0);
-    kicker.textContent = [
-      options.date ? splitLabel(options.split) : options.endless ? "Unlimited" : (options.lead ?? "Country"),
-      total ? `Round ${index + 1} of ${total}` : splitLabel(options.split),
-      scaleLabel(round.scale),
-      scores.length ? `${soFar} so far` : "",
-    ].filter(Boolean).join(" · ");
-    title.textContent = roundTitle(round.name, round.detail);
-    pop.textContent = formatPopShort(round.cells.reduce((sum, cell) => sum + cell.pop, 0));
-    hint.textContent = hints[options.split];
-    map = mountMap(stage, round, options.split, () => {
-      if (showing) reveal(false);
-    });
+    const apply = () => {
+      swapping = false;
+      const total = options.endless ? null : options.rounds.length;
+      const soFar = scores.reduce((sum, score) => sum + score, 0);
+      kicker.textContent = [
+        options.date ? splitLabel(options.split) : options.endless ? "Unlimited" : (options.lead ?? "Country"),
+        total ? `Round ${index + 1} of ${total}` : splitLabel(options.split),
+        scaleLabel(round.scale),
+        scores.length ? `${soFar} so far` : "",
+      ].filter(Boolean).join(" · ");
+      title.textContent = roundTitle(round.name, round.detail);
+      pop.textContent = formatPopShort(round.cells.reduce((sum, cell) => sum + cell.pop, 0));
+      hint.textContent = hints[options.split];
+      lock.disabled = false;
+      if (map) map.loadRound(round, options.split);
+      else {
+        map = mountMap(stage, round, options.split, () => {
+          if (showing) reveal(false);
+        });
+      }
+      stage.classList.remove("swap");
+      copy.classList.remove("swap");
+    };
+    if (map && motion()) {
+      lock.disabled = true;
+      stage.classList.add("swap");
+      copy.classList.add("swap");
+      later(apply, 180);
+    } else {
+      apply();
+    }
   };
 
   const reveal = (fresh: boolean) => {
-    if (!map) return;
+    if (!map || swapping) return;
     const round = options.rounds[index];
     if (!round) return;
     const snapshot = map.getSnapshot();
@@ -159,13 +185,14 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
   };
 
   const showSummary = () => {
-    map?.destroy();
-    map = null;
     const total = scores.reduce((sum, score) => sum + score, 0);
     const mode = splitLabel(options.split);
     const official = options.practice && options.saved ? options.saved.scores : scores;
     const text = shareText(options.date ?? new Date().toISOString().slice(0, 10), mode, official);
-    root.innerHTML = `
+    const paint = () => {
+      map?.destroy();
+      map = null;
+      root.innerHTML = `
       <section class="summary">
         <p class="kicker">${esc(mode)}${options.date ? ` · ${esc(options.date)}` : ""}</p>
         <h1>${total}<span> / ${scores.length * 100}</span></h1>
@@ -187,11 +214,19 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
       note.textContent = ok ? "Copied." : text;
     };
     root.querySelector<HTMLButtonElement>("[data-home]")!.onclick = () => options.onExit();
+    };
+    const section = root.querySelector<HTMLElement>(".play");
+    if (section && motion()) {
+      section.classList.add("screen-out");
+      later(paint, 160);
+    } else {
+      paint();
+    }
   };
 
   const onKey = (event: KeyboardEvent) => {
     if (event.key === "Escape") options.onExit();
-    if ((event.key === "Enter" || event.key === "l" || event.key === "L") && !showing && !finished) reveal(true);
+    if ((event.key === "Enter" || event.key === "l" || event.key === "L") && !showing && !finished && !swapping) reveal(true);
   };
 
   lock.onclick = () => reveal(true);
@@ -201,6 +236,8 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
   renderRound();
 
   return () => {
+    alive = false;
+    window.clearTimeout(timer);
     map?.destroy();
     window.removeEventListener("keydown", onKey);
   };

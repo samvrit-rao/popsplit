@@ -12,6 +12,8 @@ export function toggleTheme(): void {
   } catch {
     /* ignore */
   }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", next === "dark" ? "#101614" : "#e7f0ea");
   window.dispatchEvent(new Event("popsplit-theme"));
 }
 
@@ -21,10 +23,9 @@ export function themeLabel(): string {
 
 function preferredTheme(): "light" | "dark" {
   try {
-    const saved = localStorage.getItem(KEY);
-    if (saved === "light" || saved === "dark") return saved;
+    if (localStorage.getItem(KEY) === "dark") return "dark";
   } catch {
     /* ignore */
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "light";
 }

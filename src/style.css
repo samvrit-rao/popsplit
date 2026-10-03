@@ -210,7 +210,8 @@ a { color: inherit; }
   z-index: 2;
 }
 
-.play-copy { min-width: 0; flex: 1; }
+.play-copy { min-width: 0; flex: 1; transition: opacity 180ms ease; }
+.play-copy.swap { opacity: 0; }
 .play-copy h1 {
   font-family: var(--serif);
   font-size: clamp(1.25rem, 3vw, 1.8rem);
@@ -229,7 +230,8 @@ a { color: inherit; }
   font-size: 0.85rem;
 }
 
-.stage { position: relative; min-height: 0; background: #aad3df; }
+.stage { position: relative; min-height: 0; background: #aad3df; transition: opacity 180ms ease; }
+.stage.swap { opacity: 0; }
 .stage > .basemap.leaflet-container {
   position: absolute;
   inset: 0;
@@ -267,9 +269,10 @@ a { color: inherit; }
   padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   border-top: 1px solid var(--line);
+  transition: opacity 220ms ease;
 }
 
-.dock.away { visibility: hidden; }
+.dock.away { opacity: 0; pointer-events: none; }
 .dock p { color: var(--muted); font-size: 0.92rem; line-height: 1.35; }
 
 .lock, .ghost {
@@ -427,6 +430,14 @@ a { color: inherit; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.home, .summary, .play { animation: screen-in 240ms ease; }
+.screen-out { animation: none; opacity: 0; transition: opacity 160ms ease; }
+
+@keyframes screen-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (max-width: 640px) {
   .mode-card { grid-template-columns: auto 1fr; }
   .mode-meta { display: none; }
@@ -434,5 +445,6 @@ a { color: inherit; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet { transition: none; }
+  .sheet, .stage, .dock, .play-copy, .screen-out { transition: none; }
+  .home, .summary, .play { animation: none; }
 }

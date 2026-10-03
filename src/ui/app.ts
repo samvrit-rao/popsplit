@@ -24,9 +24,21 @@ export async function startApp(root: HTMLElement): Promise<void> {
   try {
     const data = await loadGameData((ratio, label) => renderLoading(root, ratio, label));
     let cleanup: (() => void) | null = null;
+    let swapTimer = 0;
     const show = (next: () => (() => void) | void) => {
-      cleanup?.();
-      cleanup = next() ?? null;
+      window.clearTimeout(swapTimer);
+      const swap = () => {
+        cleanup?.();
+        cleanup = next() ?? null;
+      };
+      const current = root.firstElementChild;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!current || reduce) {
+        swap();
+        return;
+      }
+      current.classList.add("screen-out");
+      swapTimer = window.setTimeout(swap, 160);
     };
     const route = () => show(() => renderRoute(root, data, show));
     window.addEventListener("hashchange", route);
