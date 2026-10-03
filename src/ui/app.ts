@@ -95,7 +95,7 @@ function renderHome(root: HTMLElement, data: GameData): void {
           <span class="mode-meta">${data.countries.length} places</span>
         </button>
       </div>
-      <p class="footnote">Borders are Natural Earth, via world-atlas. ${esc(data.header.sourceDetail)}</p>
+      <p class="footnote">Map tiles © OpenStreetMap contributors, via Leaflet. Scored coastlines are Natural Earth. ${esc(data.header.sourceDetail)}</p>
     </section>
   `;
   bindChrome(root);

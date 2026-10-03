@@ -11,12 +11,13 @@
     "data:places": "node scripts/build-population-from-places.mjs",
     "data:gpw": "node scripts/build-population-from-gpw.mjs",
     "data:meta": "node scripts/build-country-meta.mjs",
-    "test:score": "node --experimental-strip-types --no-warnings tests/scoring.test.ts && node --experimental-strip-types --no-warnings tests/evaluate.test.ts && node --experimental-strip-types --no-warnings tests/daily.test.ts",
+    "test:score": "node --experimental-strip-types --no-warnings tests/scoring.test.ts && node --experimental-strip-types --no-warnings tests/evaluate.test.ts && node --experimental-strip-types --no-warnings tests/daily.test.ts && node --experimental-strip-types --no-warnings tests/mapFrame.test.ts",
     "test:data": "node --experimental-strip-types --no-warnings tests/pool.test.ts",
     "test": "npm run test:score && npm run test:data"
   },
   "dependencies": {
     "d3-geo": "^3.1.1",
+    "leaflet": "^1.9.4",
     "topojson-client": "^3.1.0",
     "world-atlas": "^2.0.2"
   },

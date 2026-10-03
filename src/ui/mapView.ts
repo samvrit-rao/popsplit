@@ -1,6 +1,7 @@
-import { geoPath } from "d3-geo";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { initialCut, toPixels } from "../game/evaluate.ts";
-import { makeProjection } from "../game/project.ts";
+import { frameOfFit, osmViewFor } from "../game/mapFrame.ts";
 import type { Cut, HalvesCut, Round, ScreenCell, SplitKind, ThirdsCut } from "../game/types.ts";
 
 export const PIECE_COLORS = ["#e4533a", "#1f8a7a", "#d89a09", "#6d63d6"];
@@ -25,10 +26,34 @@ export function mountMap(
   onResize: () => void,
 ): { getSnapshot: () => MapSnapshot; showResult: (pieceOf: number[] | null, ideal: Cut | null) => void; exportPng: (title: string, score: number) => void; destroy: () => void } {
   stage.replaceChildren();
+  const host = document.createElement("div");
+  host.className = "basemap";
   const canvas = document.createElement("canvas");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.classList.add("overlay");
-  stage.append(canvas, svg);
+  const credit = document.createElement("p");
+  credit.className = "map-credit";
+  credit.innerHTML = `<a href="https://leafletjs.com" target="_blank" rel="noreferrer">Leaflet</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>`;
+  stage.append(host, canvas, svg, credit);
+
+  const map = L.map(host, {
+    zoomControl: false,
+    attributionControl: false,
+    zoomSnap: 1,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    boxZoom: false,
+    keyboard: false,
+    touchZoom: false,
+    fadeAnimation: false,
+    zoomAnimation: false,
+  });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    crossOrigin: "anonymous",
+  }).addTo(map);
+  const frame = frameOfFit(round.fit, round.cells);
 
   let cut = initialCut(split);
   let pieceOf: number[] | null = null;
@@ -36,16 +61,31 @@ export function mountMap(
   let locked = false;
   let width = 0;
   let height = 0;
-  let projection = makeProjection(round.fit, 800, 600);
   let drag: Drag | null = null;
 
   const redraw = () => {
     width = stage.clientWidth;
     height = stage.clientHeight;
     if (width < 20 || height < 20) return;
-    projection = makeProjection(round.fit, width, height);
+    map.invalidateSize(false);
+    const view = osmViewFor(frame, width, height);
+    map.setView([view.lat, view.lon], view.zoom, { animate: false });
     paintCanvas();
     paintSvg();
+  };
+
+  const frameRect = () => {
+    const corners = [
+      map.latLngToContainerPoint([frame.south, frame.west]),
+      map.latLngToContainerPoint([frame.south, frame.east]),
+      map.latLngToContainerPoint([frame.north, frame.west]),
+      map.latLngToContainerPoint([frame.north, frame.east]),
+    ];
+    const xs = corners.map((point) => point.x);
+    const ys = corners.map((point) => point.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
   };
 
   const paintCanvas = () => {
@@ -55,42 +95,40 @@ export function mountMap(
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const styles = getComputedStyle(document.documentElement);
-    ctx.fillStyle = paint(styles, "--sea", "#b9d5d6");
-    ctx.fillRect(0, 0, width, height);
-    const path = geoPath(projection, ctx as unknown as CanvasRenderingContext2D);
-    ctx.beginPath();
-    path(round.draw as never);
-    ctx.fillStyle = paint(styles, "--land", "#f4f0e4");
-    ctx.fill();
-    ctx.save();
-    ctx.beginPath();
-    path(round.draw as never);
-    ctx.clip();
+    ctx.clearRect(0, 0, width, height);
+    const box = frameRect();
     const cells = projectCells();
     const maxPop = cells.reduce((max, cell) => Math.max(max, cell.pop), 1);
-    const maxR = Math.max(7, Math.min(width, height) * 0.048);
-    const dot = paint(styles, "--pop", "#1e5c45");
+    const maxR = Math.max(5.5, Math.min(width, height) * 0.03);
+    ctx.save();
+    if (box.w > 2 && box.h > 2) {
+      ctx.beginPath();
+      ctx.rect(box.x, box.y, box.w, box.h);
+      ctx.clip();
+    }
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i]!;
-      const radius = Math.max(2.5, Math.sqrt(cell.pop / maxPop) * maxR);
+      const radius = Math.max(2.4, Math.sqrt(cell.pop / maxPop) * maxR);
+      const dot = pieceOf ? (PIECE_COLORS[pieceOf[i] ?? 0] ?? "#1d5c44") : "#1d5c44";
       ctx.beginPath();
       ctx.arc(cell.x, cell.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = pieceOf ? (PIECE_COLORS[pieceOf[i] ?? 0] ?? dot) : dot;
-      ctx.globalAlpha = 0.94;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = dot;
       ctx.fill();
-      ctx.globalAlpha = 0.45;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = pieceOf ? "rgba(255,255,255,0.7)" : "rgba(255,252,246,0.35)";
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.25;
+      ctx.strokeStyle = "rgba(255,255,255,0.92)";
       ctx.stroke();
     }
     ctx.restore();
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    path(round.draw as never);
-    ctx.strokeStyle = paint(styles, "--coast", "#24352d");
-    ctx.lineWidth = 1.35;
-    ctx.stroke();
+    if (box.w > 2 && box.h > 2) {
+      ctx.strokeStyle = "rgba(255,252,246,0.95)";
+      ctx.lineWidth = 7;
+      ctx.strokeRect(box.x, box.y, box.w, box.h);
+      ctx.strokeStyle = "#16324a";
+      ctx.lineWidth = 2.75;
+      ctx.strokeRect(box.x, box.y, box.w, box.h);
+    }
   };
 
   const paintSvg = () => {
@@ -123,9 +161,9 @@ export function mountMap(
   const projectCells = (): ScreenCell[] => {
     const cells: ScreenCell[] = [];
     for (const cell of round.cells) {
-      const point = projection([cell.lon, cell.lat]);
-      if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
-      cells.push({ x: point[0], y: point[1], pop: cell.pop });
+      const point = map.latLngToContainerPoint([cell.lat, cell.lon]);
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+      cells.push({ x: point.x, y: point.y, pop: cell.pop });
     }
     return cells;
   };
@@ -237,8 +275,11 @@ export function mountMap(
       exportCanvas.height = canvas.height;
       const ctx = exportCanvas.getContext("2d");
       if (!ctx) return;
-      ctx.drawImage(canvas, 0, 0);
       const dpr = canvas.width / Math.max(1, width);
+      ctx.fillStyle = "#aad3df";
+      ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      paintTiles(ctx, host, dpr);
+      ctx.drawImage(canvas, 0, 0);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const pixel = toPixels(cut, width, height);
       strokeLines(ctx, cutLines(pixel, width, height), "#17241e", 4);
@@ -248,6 +289,8 @@ export function mountMap(
       ctx.fillStyle = "#f7f4ec";
       ctx.font = "600 18px Fraunces, Georgia, serif";
       ctx.fillText(title, 16, height - 30);
+      ctx.font = "500 12px Outfit, sans-serif";
+      ctx.fillText("© OpenStreetMap", 16, height - 12);
       ctx.font = "500 16px Outfit, sans-serif";
       ctx.fillText(String(score), width - 56, height - 30);
       exportCanvas.toBlob((blob) => {
@@ -267,8 +310,29 @@ export function mountMap(
       svg.removeEventListener("pointermove", onPointerMove);
       svg.removeEventListener("pointerup", onPointerUp);
       svg.removeEventListener("pointercancel", onPointerUp);
+      map.remove();
     },
   };
+}
+
+function paintTiles(ctx: CanvasRenderingContext2D, host: HTMLElement, dpr: number) {
+  const origin = host.getBoundingClientRect();
+  const tiles = host.querySelectorAll<HTMLImageElement>("img.leaflet-tile");
+  for (const img of tiles) {
+    if (!img.complete || img.naturalWidth === 0) continue;
+    const rect = img.getBoundingClientRect();
+    try {
+      ctx.drawImage(
+        img,
+        (rect.left - origin.left) * dpr,
+        (rect.top - origin.top) * dpr,
+        rect.width * dpr,
+        rect.height * dpr,
+      );
+    } catch {
+      /* a tile that is not readable yet is skipped */
+    }
+  }
 }
 
 function handleMarks(cut: Cut, width: number, height: number): Array<{ x: number; y: number; key: string }> {
@@ -398,10 +462,6 @@ function strokeLines(ctx: CanvasRenderingContext2D, lines: number[][], color: st
     ctx.stroke();
   }
   ctx.restore();
-}
-
-function paint(styles: CSSStyleDeclaration, name: string, fallback: string): string {
-  return styles.getPropertyValue(name).trim() || fallback;
 }
 
 function clamp(value: number, min: number, max: number): number {

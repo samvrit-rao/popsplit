@@ -57,9 +57,9 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
   const dock = root.querySelector<HTMLElement>(".dock")!;
 
   const hints: Record<SplitKind, string> = {
-    halves: "Drag either end or the line. Bigger dots are more people. No percentages until you lock in.",
-    thirds: "Move the hub, then swing each spoke. Bigger dots are more people. No percentages until you lock in.",
-    quarters: "Drag the hub, then turn the cross. The arms stay perpendicular. No percentages until you lock in.",
+    halves: "Drag either end or the line. The frame is the region you split. Bigger dots are more people. No percentages until you lock in.",
+    thirds: "Move the hub, then swing each spoke. The frame is the region you split. Bigger dots are more people. No percentages until you lock in.",
+    quarters: "Drag the hub, then turn the cross. The arms stay perpendicular. The frame is the region you split. No percentages until you lock in.",
   };
 
   const renderRound = () => {
