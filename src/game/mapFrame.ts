@@ -1,4 +1,5 @@
 import { boundsClipped, boundsOfGeometry, lonSpanOf } from "./bounds.ts";
+import { hasMiddleWater, landFraction, solidLandFrame } from "./landShare.ts";
 import type { BBox, Cell, GeoCollection, GeoFeature } from "./types.ts";
 
 const MARGIN = 0.18;
@@ -8,7 +9,9 @@ export type OsmView = { lat: number; lon: number; zoom: number };
 /**
  * Play frame for one round. Uses the land inside the fit window, so a
  * rectangle that runs off the coast does not cover empty ocean, and a
- * dateline island is not stretched into a world view.
+ * dateline island is not stretched into a world view. A frame that would
+ * be mostly water, or that would put a gulf or lake through the middle,
+ * shrinks onto the land side.
  */
 export function frameOfFit(fit: GeoFeature | GeoCollection, cells: Cell[], draw?: GeoFeature | GeoCollection): BBox {
   const fitBox = boundsOfGeometry(fit);
@@ -17,11 +20,23 @@ export function frameOfFit(fit: GeoFeature | GeoCollection, cells: Cell[], draw?
   const clipped = draw && window && lonSpanOf(window) <= 200 ? boundsClipped(draw, window) : null;
   let box = clipped ?? window ?? drawBox;
   const cellsBox = boundsFromCells(cells);
+  // A window over the interior of a country has coastline vertices on only
+  // one side. Clipping to those vertices would drop the inland cities.
+  if (box && cellsBox && window && (lonSpanOf(cellsBox) > lonSpanOf(box) + 0.35 || cellsBox.north - cellsBox.south > box.north - box.south + 0.35)) {
+    box = window;
+  }
   if (box && cellsBox && (lonSpanOf(box) > Math.max(40, lonSpanOf(cellsBox) * 3) || box.north - box.south > Math.max(30, (cellsBox.north - cellsBox.south) * 3))) {
     box = cellsBox;
   }
   if (!box) box = cellsBox ?? { west: -10, south: -10, east: 10, north: 10, wraps: false };
-  return normalizeFrame(expandBox(box, 0.04, 0.35));
+  const shape = draw ?? fit;
+  const solid = solidLandFrame(shape, box, cells);
+  if (solid) box = solid.box;
+  const bare = normalizeFrame(box);
+  const padded = normalizeFrame(expandBox(box, 0.04, 0.35));
+  if (hasMiddleWater(shape, padded)) return bare;
+  if (landFraction(shape, padded) + 0.08 < landFraction(shape, bare)) return bare;
+  return padded;
 }
 
 /**

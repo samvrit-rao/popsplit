@@ -1,5 +1,6 @@
 import { cellsInside } from "./land.ts";
-import { sumPop } from "./population.ts";
+import { frameOfFit } from "./mapFrame.ts";
+import { inBBox, sumPop } from "./population.ts";
 import type { PopGrid } from "./population.ts";
 import type { Cell, GeoCollection, GeoFeature, Round } from "./types.ts";
 
@@ -31,6 +32,8 @@ export function buildStates(collection: GeoCollection, grid: PopGrid): StateShap
 
 export function stateRound(state: StateShape): Round {
   const draw: GeoCollection = { type: "FeatureCollection", features: [state.feature] };
+  const frame = frameOfFit(draw, state.cells, draw);
+  const cells = state.cells.filter((cell) => inBBox(cell.lon, cell.lat, frame));
   return {
     id: `state-${state.id}`,
     name: state.name,
@@ -39,6 +42,6 @@ export function stateRound(state: StateShape): Round {
     scale: "state",
     draw,
     fit: draw,
-    cells: state.cells,
+    cells: cells.length ? cells : state.cells,
   };
 }

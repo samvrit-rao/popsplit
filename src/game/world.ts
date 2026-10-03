@@ -1,5 +1,8 @@
 import { feature } from "topojson-client";
+import { boundsOfGeometry, lonSpanOf } from "./bounds.ts";
 import { cellsInside, clusterShape, isPlayable, rectangleFeature, zoomWindows } from "./land.ts";
+import { hasMiddleWater, landFraction, MIN_LAND_SHARE, solidLandFrame } from "./landShare.ts";
+import { frameOfFit } from "./mapFrame.ts";
 import type { PopGrid } from "./population.ts";
 import { cellSpan, inBBox, sumPop } from "./population.ts";
 import type {
@@ -119,15 +122,23 @@ export function buildPool(countries: CountryShape[]): PoolItem[] {
   const pool: PoolItem[] = [];
   for (const country of countries) {
     if (!isPlayable(country.cells, 4, 80_000)) continue;
-    pool.push({
-      id: `country-${country.id}`,
-      name: country.name,
-      detail: country.trimmed ? "Main landmass" : null,
-      continent: country.continent,
-      scale: "country",
-      countryIds: [country.id],
-      window: null,
-    });
+    const countryFrame = solidLandFrame(country.draw, country.bounds, country.cells);
+    if (countryFrame && countryFrame.land >= MIN_LAND_SHARE) {
+      const tightened = lonSpanOf(countryFrame.box) < lonSpanOf(country.bounds) - 0.5
+        || countryFrame.box.north - countryFrame.box.south < country.bounds.north - country.bounds.south - 0.5;
+      const framedCells = country.cells.filter((cell) => inBBox(cell.lon, cell.lat, countryFrame.box));
+      if (isPlayable(framedCells, 4, 80_000)) {
+        pool.push({
+          id: `country-${country.id}`,
+          name: country.name,
+          detail: country.trimmed ? "Main landmass" : null,
+          continent: country.continent,
+          scale: "country",
+          countryIds: [country.id],
+          window: tightened ? countryFrame.box : null,
+        });
+      }
+    }
     if (country.cells.length < 8 || country.bounds.wraps) continue;
     const countryPop = country.pop || 1;
     for (const window of zoomWindows(country.bounds)) {
@@ -135,6 +146,12 @@ export function buildPool(countries: CountryShape[]): PoolItem[] {
       const pop = sumPop(cells);
       const fraction = pop / countryPop;
       if (!isPlayable(cells, 4, 60_000) || fraction < 0.1 || fraction > 0.72) continue;
+      const shaped = solidLandFrame(country.draw, window.box, cells);
+      if (!shaped || shaped.land < MIN_LAND_SHARE) continue;
+      const framed = cells.filter((cell) => inBBox(cell.lon, cell.lat, shaped.box));
+      const framedPop = sumPop(framed);
+      const framedFraction = framedPop / countryPop;
+      if (!isPlayable(framed, 4, 60_000) || framedFraction < 0.1 || framedFraction > 0.72) continue;
       pool.push({
         id: `zoom-${country.id}-${window.label.toLowerCase()}`,
         name: country.name,
@@ -142,7 +159,7 @@ export function buildPool(countries: CountryShape[]): PoolItem[] {
         continent: country.continent,
         scale: "zoom",
         countryIds: [country.id],
-        window: window.box,
+        window: shaped.box,
       });
     }
   }
@@ -161,22 +178,28 @@ export function buildPool(countries: CountryShape[]): PoolItem[] {
     const allCells = members.flatMap((country) => country.cells);
     const span = cellSpan(allCells);
     const playableMembers = members.filter((country) => country.cells.length > 0);
-    if (playableMembers.length >= 2 && span.lon <= 52 && span.lat <= 42 && isPlayable(allCells, 8, 200_000)) {
-      pool.push({
-        id: `region-${slug(subregion)}`,
-        name: named,
-        detail: null,
-        continent,
-        scale: "subregion",
-        countryIds: playableMembers.map((country) => country.id),
-        window: null,
-      });
-      continue;
+    const groupBox = boundsOfGeometry(memberDraw(playableMembers));
+    const wholeFits = playableMembers.length >= 2 && span.lon <= 52 && span.lat <= 42 && isPlayable(allCells, 8, 200_000);
+    if (wholeFits && groupBox) {
+      const framed = acceptLand(playableMembers, groupBox, allCells, 2, 8, 200_000);
+      if (framed) {
+        pool.push({
+          id: `region-${slug(subregion)}`,
+          name: named,
+          detail: null,
+          continent,
+          scale: "subregion",
+          countryIds: framed.countryIds,
+          window: framed.tightened ? framed.box : null,
+        });
+        continue;
+      }
     }
     const slices = sliceGroup(playableMembers, named, continent, subregion);
     pool.push(...slices);
   }
-  return pool;
+  const byId = new Map(countries.map((country) => [country.id, country]));
+  return pool.filter((item) => materialize(item, byId));
 }
 
 export function materialize(item: PoolItem, countries: Map<string, CountryShape>): Round | null {
@@ -194,7 +217,13 @@ export function materialize(item: PoolItem, countries: Map<string, CountryShape>
     type: "FeatureCollection",
     features: (drawMembers.length ? drawMembers : members).flatMap((country) => country.draw.features),
   };
-  const fit = window ? rectangleFeature(window) : draw;
+  const seed = window ?? boundsOfGeometry(draw);
+  if (!seed) return null;
+  const frame = frameOfFit(window ? rectangleFeature(window) : draw, cells, draw);
+  if (hasMiddleWater(draw, frame) || landFraction(draw, frame) < MIN_LAND_SHARE - 0.08) return null;
+  const kept = cells.filter((cell) => inBBox(cell.lon, cell.lat, frame));
+  if (!isPlayable(kept, 4, 1)) return null;
+  const fit = rectangleFeature(frame);
   return {
     id: item.id,
     name: item.name,
@@ -203,7 +232,7 @@ export function materialize(item: PoolItem, countries: Map<string, CountryShape>
     scale: item.scale,
     draw,
     fit,
-    cells,
+    cells: kept,
   };
 }
 
@@ -236,15 +265,17 @@ function sliceGroup(members: CountryShape[], name: string, continent: string, su
       members.filter((country) => country.cells.some((cell) => inBBox(cell.lon, cell.lat, box))).map((country) => country.id),
     );
     if (represented.size < 2 || !isPlayable(inside, 8, 180_000)) continue;
-    const label = sliceLabel(inside, cells);
+    const framed = acceptLand(members, box, inside, 2, 8, 180_000);
+    if (!framed) continue;
+    const label = sliceLabel(framed.cells, cells);
     items.push({
       id: `region-${slug(subregion)}-${west}-${label.toLowerCase()}`,
       name,
       detail: label,
       continent,
       scale: "subregion",
-      countryIds: [...represented],
-      window: box,
+      countryIds: framed.countryIds,
+      window: framed.box,
     });
   }
   return dedupeSlices(items);
@@ -322,6 +353,33 @@ function centroidOf(cells: Cell[]): { lon: number; lat: number } {
   }
   if (pop <= 0) return { lon: 0, lat: 0 };
   return { lon: lon / pop, lat: lat / pop };
+}
+
+function memberDraw(members: CountryShape[]): GeoCollection {
+  return {
+    type: "FeatureCollection",
+    features: members.flatMap((country) => country.draw.features),
+  };
+}
+
+function acceptLand(
+  members: CountryShape[],
+  seed: BBox,
+  cells: Cell[],
+  minCountries: number,
+  minCells: number,
+  minPop: number,
+): { box: BBox; cells: Cell[]; countryIds: string[]; tightened: boolean } | null {
+  const shaped = solidLandFrame(memberDraw(members), seed, cells);
+  if (!shaped || shaped.land < MIN_LAND_SHARE) return null;
+  const kept = cells.filter((cell) => inBBox(cell.lon, cell.lat, shaped.box));
+  const countryIds = members
+    .filter((country) => country.cells.some((cell) => inBBox(cell.lon, cell.lat, shaped.box)))
+    .map((country) => country.id);
+  if (countryIds.length < minCountries || !isPlayable(kept, minCells, minPop)) return null;
+  const tightened = lonSpanOf(shaped.box) < lonSpanOf(seed) - 0.5
+    || shaped.box.north - shaped.box.south < seed.north - seed.south - 0.5;
+  return { box: shaped.box, cells: kept, countryIds, tightened };
 }
 
 function boundsOverlap(a: BBox, b: BBox): boolean {

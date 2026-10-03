@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { feature } from "topojson-client";
 import { lonSpanOf } from "../src/game/bounds.ts";
+import { hasMiddleWater, landFraction } from "../src/game/landShare.ts";
 import { frameOfFit, osmViewFor } from "../src/game/mapFrame.ts";
 import type { GeoCollection, GeoFeature } from "../src/game/types.ts";
 
@@ -106,6 +107,7 @@ const fijiReal = frameOfFit({ type: "FeatureCollection", features: [fiji!] }, [
   { lon: 178.2, lat: -17.8, pop: 1000 },
 ], { type: "FeatureCollection", features: [fiji!] });
 assert.ok(lonSpanOf(fijiReal) < 30, `real Fiji span ${lonSpanOf(fijiReal)}`);
+assert.ok(lonSpanOf(fijiReal) > 0.8, `real Fiji should frame an island, span ${lonSpanOf(fijiReal)}`);
 assert.ok(osmViewFor(fijiReal, 1280, 800).zoom >= 5, `real Fiji zoom ${osmViewFor(fijiReal, 1280, 800).zoom}`);
 
 const states = JSON.parse(readFileSync("public/data/us-states.json", "utf8")) as GeoCollection;
@@ -119,4 +121,50 @@ assert.ok(osmViewFor(californiaFrame, 1100, 720).zoom >= 5, "California should b
 assert.ok(lonSpanOf(alaskaFrame) < 70, `Alaska span ${lonSpanOf(alaskaFrame)}`);
 assert.ok(osmViewFor(alaskaFrame, 1100, 720).zoom >= 3, "Alaska should not be a world view");
 
-console.log(`map frame ok  maliZoom=${view.zoom.toFixed(2)}  framePx=${framePx.toFixed(0)}  fijiZoom=${fijiView.zoom}  fijiSpan=${fijiSpan.toFixed(1)}`);
+function square(west: number, south: number, east: number, north: number, hole?: [number, number, number, number]): GeoFeature {
+  // d3-geo treats a clockwise ring as the exterior.
+  const outer = [[west, south], [west, north], [east, north], [east, south], [west, south]];
+  const coordinates = [outer];
+  if (hole) {
+    const [hw, hs, he, hn] = hole;
+    coordinates.push([[hw, hs], [he, hs], [he, hn], [hw, hn], [hw, hs]]);
+  }
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates } };
+}
+
+const sweden = square(17, 60, 20, 66);
+const finland = square(23, 60, 26, 66);
+const bothniaDraw: GeoCollection = { type: "FeatureCollection", features: [sweden, finland] };
+const bothniaFit = square(16, 59, 28, 67);
+const bothnia = frameOfFit(bothniaFit, [
+  { lon: 18, lat: 62, pop: 8000 },
+  { lon: 18.4, lat: 64, pop: 6000 },
+  { lon: 24.2, lat: 63, pop: 400 },
+], bothniaDraw);
+assert.ok(bothnia.east < 21.6, `Gulf of Bothnia frame should stay on the Swedish side, east ${bothnia.east}`);
+assert.ok(bothnia.west > 15 && bothnia.west < 19, `Swedish side west ${bothnia.west}`);
+assert.ok(landFraction(bothniaDraw, bothnia) >= 0.5, `Bothnia land share ${landFraction(bothniaDraw, bothnia)}`);
+assert.equal(hasMiddleWater(bothniaDraw, bothnia), false, "Bothnia frame still has water through the middle");
+
+const lake = square(0, 0, 12, 10, [5, 0.4, 7.2, 9.6]);
+const lakeFrame = frameOfFit(lake, [
+  { lon: 2, lat: 5, pop: 4000 },
+  { lon: 3, lat: 6, pop: 4000 },
+  { lon: 9, lat: 5, pop: 200 },
+], lake);
+assert.ok(lakeFrame.west < 1 && lakeFrame.east < 7.1 && lakeFrame.east > 4, `lake should stay on the left shore, ${lakeFrame.west}..${lakeFrame.east}`);
+assert.ok(lakeFrame.east - lakeFrame.west < 8, `lake frame should not span both shores, span ${lakeFrame.east - lakeFrame.west}`);
+assert.equal(hasMiddleWater(lake, lakeFrame), false);
+assert.ok(landFraction(lake, lakeFrame) >= 0.5, `lake land share ${landFraction(lake, lakeFrame)}`);
+
+const coastLand = square(0, 0, 10, 6);
+const coastFit = square(0, 0, 10, 11);
+const coastFrame = frameOfFit(coastFit, [
+  { lon: 2, lat: 2, pop: 1000 },
+  { lon: 8, lat: 4, pop: 1000 },
+], coastLand);
+assert.ok(coastFrame.south < 1 && coastFrame.north > 5 && coastFrame.north < 8, `coastline frame ${coastFrame.south}..${coastFrame.north}`);
+assert.equal(hasMiddleWater(coastLand, coastFrame), false);
+assert.ok(landFraction(coastLand, coastFrame) >= 0.5, `coast land share ${landFraction(coastLand, coastFrame)}`);
+
+console.log(`map frame ok  maliZoom=${view.zoom.toFixed(2)}  framePx=${framePx.toFixed(0)}  fijiZoom=${fijiView.zoom.toFixed(2)}  fijiSpan=${fijiSpan.toFixed(1)}  bothnia=${bothnia.west.toFixed(1)}..${bothnia.east.toFixed(1)}`);
