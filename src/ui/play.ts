@@ -9,6 +9,8 @@ type Options = {
   split: SplitKind;
   rounds: Round[];
   endless: boolean;
+  /** Home-mode name shown in the round header, such as States. */
+  lead?: string;
   date: string | null;
   practice: boolean;
   saved: ModeResult | null;
@@ -57,8 +59,8 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
   const dock = root.querySelector<HTMLElement>(".dock")!;
 
   const hints: Record<SplitKind, string> = {
-    halves: "Drag either end or the line. The frame is the region you split. Bigger dots are more people. No percentages until you lock in.",
-    thirds: "Move the hub, then swing each spoke. The frame is the region you split. Bigger dots are more people. No percentages until you lock in.",
+    halves: "Drag either end or the line. The frame is the region you split. No percentages until you lock in.",
+    thirds: "Move the hub, then swing each spoke. The frame is the region you split. No percentages until you lock in.",
     quarters: "Drag the hub, then turn the cross. The arms stay perpendicular. The frame is the region you split. No percentages until you lock in.",
   };
 
@@ -74,7 +76,7 @@ export function mountPlay(root: HTMLElement, options: Options): () => void {
     const total = options.endless ? null : options.rounds.length;
     const soFar = scores.reduce((sum, score) => sum + score, 0);
     kicker.textContent = [
-      options.date ? splitLabel(options.split) : options.endless ? "Unlimited" : "Country",
+      options.date ? splitLabel(options.split) : options.endless ? "Unlimited" : (options.lead ?? "Country"),
       total ? `Round ${index + 1} of ${total}` : splitLabel(options.split),
       scaleLabel(round.scale),
       scores.length ? `${soFar} so far` : "",

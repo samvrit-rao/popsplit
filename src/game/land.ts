@@ -1,4 +1,5 @@
 import { geoArea, geoBounds, geoCentroid, geoContains } from "d3-geo";
+import { boundsOfGeometry, lonSpanOf } from "./bounds.ts";
 import { cellSpan, inBBox, sumPop } from "./population.ts";
 import type { PopGrid } from "./population.ts";
 import type { BBox, Cell, GeoCollection, GeoFeature, LonLat } from "./types.ts";
@@ -174,11 +175,18 @@ function explode(feature: GeoFeature): GeoFeature[] {
 }
 
 function bboxOf(shape: GeoFeature | GeoCollection): BBox | null {
+  let geo: BBox | null = null;
   try {
-    return bboxFromBounds(geoBounds(shape as never) as [[number, number], [number, number]]);
+    geo = bboxFromBounds(geoBounds(shape as never) as [[number, number], [number, number]]);
   } catch {
-    return null;
+    geo = null;
   }
+  const arc = boundsOfGeometry(shape);
+  if (!geo) return arc;
+  if (!arc) return geo;
+  // geoBounds turns a tiny dateline island into a span of the whole world.
+  if (lonSpanOf(geo) > lonSpanOf(arc) + 20) return arc;
+  return geo;
 }
 
 function centroidSpan(parts: Part[]): { lon: number; lat: number } {

@@ -1,20 +1,27 @@
-import { geoBounds } from "d3-geo";
-import { bboxFromBounds } from "./land.ts";
+import { boundsClipped, boundsOfGeometry, lonSpanOf } from "./bounds.ts";
 import type { BBox, Cell, GeoCollection, GeoFeature } from "./types.ts";
 
 const MARGIN = 0.18;
 
 export type OsmView = { lat: number; lon: number; zoom: number };
 
-/** Geographic rectangle that is scored and drawn as the play frame. */
-export function frameOfFit(fit: GeoFeature | GeoCollection, cells: Cell[]): BBox {
-  try {
-    const box = bboxFromBounds(geoBounds(fit as never) as [[number, number], [number, number]]);
-    if (Number.isFinite(box.west) && box.north > box.south) return normalizeFrame(box);
-  } catch {
-    /* use the cities that are actually scored */
+/**
+ * Play frame for one round. Uses the land inside the fit window, so a
+ * rectangle that runs off the coast does not cover empty ocean, and a
+ * dateline island is not stretched into a world view.
+ */
+export function frameOfFit(fit: GeoFeature | GeoCollection, cells: Cell[], draw?: GeoFeature | GeoCollection): BBox {
+  const fitBox = boundsOfGeometry(fit);
+  const drawBox = draw ? boundsOfGeometry(draw) : null;
+  const window = fitBox && lonSpanOf(fitBox) > 200 && drawBox && lonSpanOf(drawBox) + 20 < lonSpanOf(fitBox) ? drawBox : fitBox;
+  const clipped = draw && window && lonSpanOf(window) <= 200 ? boundsClipped(draw, window) : null;
+  let box = clipped ?? window ?? drawBox;
+  const cellsBox = boundsFromCells(cells);
+  if (box && cellsBox && (lonSpanOf(box) > Math.max(40, lonSpanOf(cellsBox) * 3) || box.north - box.south > Math.max(30, (cellsBox.north - cellsBox.south) * 3))) {
+    box = cellsBox;
   }
-  return normalizeFrame(boundsFromCells(cells));
+  if (!box) box = cellsBox ?? { west: -10, south: -10, east: 10, north: 10, wraps: false };
+  return normalizeFrame(expandBox(box, 0.04, 0.35));
 }
 
 /**
@@ -35,13 +42,31 @@ export function osmViewFor(frame: BBox, width: number, height: number): OsmView 
   const usableH = Math.max(48, height - 28);
   const zoomX = Math.log2(usableW / (256 * (viewLon / 360)));
   const zoomY = Math.log2(usableH / (256 * Math.max(Math.abs(mercatorY(north) - mercatorY(south)), 1e-6)));
-  // Integer zoom keeps OSM tiles sharp. Flooring never crops the frame.
-  const zoom = Math.floor(Math.max(2, Math.min(16, Math.min(zoomX, zoomY))));
+  const zoom = Math.max(2, Math.min(16, Math.min(zoomX, zoomY)));
   return { lat, lon, zoom };
 }
 
-function boundsFromCells(cells: Cell[]): BBox {
-  if (!cells.length) return { west: -10, south: -10, east: 10, north: 10, wraps: false };
+function expandBox(box: BBox, fraction: number, maxDeg: number): BBox {
+  const lonSpan = Math.max(0.05, lonSpanOf(box));
+  const latSpan = Math.max(0.05, box.north - box.south);
+  const lonPad = Math.min(maxDeg, Math.max(0.06, lonSpan * fraction));
+  const latPad = Math.min(maxDeg, Math.max(0.06, latSpan * fraction));
+  const west = box.west - lonPad;
+  const eastUnwrapped = (box.wraps ? box.east + 360 : box.east) + lonPad;
+  let east = eastUnwrapped;
+  if (east > 180) east -= 360;
+  const wraps = west > east;
+  return {
+    west: Math.max(-180, west),
+    south: Math.max(-85, box.south - latPad),
+    east,
+    north: Math.min(85, box.north + latPad),
+    wraps,
+  };
+}
+
+function boundsFromCells(cells: Cell[]): BBox | null {
+  if (!cells.length) return null;
   const lons = cells.map((cell) => cell.lon).sort((a, b) => a - b);
   let maxGap = 0;
   let gapAt = 0;

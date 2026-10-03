@@ -4,6 +4,8 @@ import { hashString, mulberry32 } from "../game/rng.ts";
 import type { GameData } from "../game/load.ts";
 import { loadGameData } from "../game/load.ts";
 import type { CountryShape, Round, SplitKind } from "../game/types.ts";
+import { stateRound } from "../game/states.ts";
+import type { StateShape } from "../game/states.ts";
 import { materialize, randomPoolItem } from "../game/world.ts";
 import { mountPlay } from "./play.ts";
 import { recordResult, resultFor, summarize } from "./statsStore.ts";
@@ -43,6 +45,7 @@ function renderRoute(root: HTMLElement, data: GameData, show: (next: () => (() =
   const hash = location.hash || "#/";
   if (hash === "#/stats") return renderStats(root, data);
   if (hash === "#/country") return renderCountry(root, data, show);
+  if (hash === "#/states") return renderStates(root, data, show);
   if (hash === "#/unlimited") return renderUnlimited(root, data, show);
   if (hash === "#/halves") return startDaily(root, data, "halves");
   if (hash === "#/thirds") return startDaily(root, data, "thirds");
@@ -81,7 +84,7 @@ function renderHome(root: HTMLElement, data: GameData): void {
           <span>
             <span class="mode-kicker">Any split</span>
             <strong>Unlimited</strong>
-            <em>A fresh map every time. Countries, regions, and close-ups, in whatever cut you pick.</em>
+            <em>Zoom into part of a country. A new map every time, in whatever cut you pick.</em>
           </span>
           <span class="mode-meta">Practice</span>
         </button>
@@ -93,6 +96,15 @@ function renderHome(root: HTMLElement, data: GameData): void {
             <em>Search the atlas or deal a country at random. The cut starts as halves.</em>
           </span>
           <span class="mode-meta">${data.countries.length} places</span>
+        </button>
+        <button class="mode-card accent-state" type="button" data-go="#/states">
+          <span class="index">US</span>
+          <span>
+            <span class="mode-kicker">United States</span>
+            <strong>States</strong>
+            <em>One state at a time, framed on that state. Same cuts as the daily game.</em>
+          </span>
+          <span class="mode-meta">${data.states.length} states</span>
         </button>
       </div>
       <p class="footnote">Map tiles © OpenStreetMap contributors, via Leaflet. Scored coastlines are Natural Earth. ${esc(data.header.sourceDetail)}</p>
@@ -228,6 +240,70 @@ function renderCountry(root: HTMLElement, data: GameData, show: (next: () => (()
   draw();
 }
 
+function renderStates(root: HTMLElement, data: GameData, show: (next: () => (() => void) | void) => void): void {
+  let split: SplitKind = "halves";
+  const playable = data.states.filter((state) => state.cells.length >= 2 && state.pop >= 20_000);
+  const draw = () => {
+    root.innerHTML = `
+      <section class="home picker">
+        ${topBar("Home", "#/")}
+        <p class="dateline">States</p>
+        <h1>Choose a state.</h1>
+        ${splitPicker(split)}
+        <div class="search-row">
+          <input type="search" placeholder="Search states" aria-label="Search states" data-search />
+          <button class="ghost" type="button" data-random>Random</button>
+        </div>
+        <ul class="country-list" data-list></ul>
+      </section>
+    `;
+    bindChrome(root);
+    bindSplit(root, (next) => {
+      split = next;
+    });
+    const list = root.querySelector<HTMLElement>("[data-list]")!;
+    const input = root.querySelector<HTMLInputElement>("[data-search]")!;
+    const fill = () => {
+      const query = input.value.trim().toLowerCase();
+      const matches = data.states.filter((state) => state.name.toLowerCase().includes(query));
+      list.innerHTML = matches.length
+        ? matches.map((state) => {
+          const ok = state.cells.length >= 2 && state.pop >= 20_000;
+          return `<li><button type="button" data-id="${esc(state.id)}" ${ok ? "" : "disabled"}><span>${esc(state.name)}</span><em>${ok ? "United States" : "too few cities"}</em></button></li>`;
+        }).join("")
+        : `<li class="empty">No state matches that.</li>`;
+      list.querySelectorAll<HTMLButtonElement>("[data-id]").forEach((button) => {
+        button.onclick = () => {
+          const state = data.states.find((item) => item.id === button.dataset.id);
+          if (state) startState(root, state, split, show);
+        };
+      });
+    };
+    input.oninput = fill;
+    fill();
+    root.querySelector<HTMLButtonElement>("[data-random]")!.onclick = () => {
+      const state = playable[Math.floor(Math.random() * playable.length)];
+      if (state) startState(root, state, split, show);
+    };
+  };
+  draw();
+}
+
+function startState(root: HTMLElement, state: StateShape, split: SplitKind, show: (next: () => (() => void) | void) => void): void {
+  const round = stateRound(state);
+  if (round.cells.length < 2) return;
+  show(() => startRounds(root, {
+    split,
+    rounds: [round],
+    endless: false,
+    lead: "States",
+    date: null,
+    practice: false,
+    saved: null,
+    onExit: () => go("#/states"),
+  }));
+}
+
 function startCountry(root: HTMLElement, data: GameData, country: CountryShape, split: SplitKind, show: (next: () => (() => void) | void) => void): void {
   const round = materialize({
     id: `country-play-${country.id}`,
@@ -273,13 +349,15 @@ function startRounds(root: HTMLElement, options: Parameters<typeof mountPlay>[1]
 }
 
 function deal(data: GameData, avoid: string | null): Round | null {
-  for (let i = 0; i < 12; i++) {
-    const item = randomPoolItem(data.pool);
+  const zooms = data.pool.filter((item) => item.scale === "zoom");
+  const source = zooms.length ? zooms : data.pool;
+  for (let i = 0; i < 24; i++) {
+    const item = randomPoolItem(source);
     if (!item || item.id === avoid) continue;
     const round = materialize(item, data.byId);
-    if (round) return round;
+    if (round && round.cells.length >= 4) return round;
   }
-  const fallback = data.pool[0];
+  const fallback = source.find((item) => item.id !== avoid) ?? source[0];
   return fallback ? materialize(fallback, data.byId) : null;
 }
 

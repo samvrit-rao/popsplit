@@ -6,9 +6,9 @@ PopSplit is a daily geography puzzle you play in the browser. A round shows one 
 - **Thirds** — a movable center and three spokes, aiming at about 33% each.
 - **Quarters** — two lines locked at a right angle, aiming at 25% each.
 
-Percentages stay hidden while you drag. **Lock in** reveals the share of each piece, a color for each piece, and a dashed green line: the best single adjustment from the cut you actually drew. The daily game is three rounds. Unlimited deals a new map whenever you want one, and Country lets you search or pick at random.
+Percentages stay hidden while you drag. **Lock in** reveals the share of each piece, a color for each piece, and a dashed green line: the best single adjustment from the cut you actually drew. The daily game is three rounds. Unlimited zooms into part of a country. Country lets you search or pick at random, and States does the same for US states.
 
-Scores, streaks, and the histogram live in `localStorage`. There is no account. Each round is an [OpenStreetMap](https://www.openstreetmap.org/copyright) basemap (Leaflet tiles from `tile.openstreetmap.org`) with the scored region framed on top. Population dots sit on that map and still decide the score. Coastlines used to build the rounds are Natural Earth.
+Scores, streaks, and the histogram live in `localStorage`. There is no account. Each round is an [OpenStreetMap](https://www.openstreetmap.org/copyright) basemap (Leaflet tiles from `tile.openstreetmap.org`). The frame is the land being scored, zoomed to that place. Population still decides the score and stays hidden until you lock in. Country coastlines are Natural Earth. State outlines are Natural Earth admin-1.
 
 ## Run locally
 

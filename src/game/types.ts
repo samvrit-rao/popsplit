@@ -1,4 +1,4 @@
-export type Scale = "country" | "subregion" | "zoom";
+export type Scale = "country" | "subregion" | "zoom" | "state";
 export type SplitKind = "halves" | "thirds" | "quarters";
 
 export type Cell = { lon: number; lat: number; pop: number };

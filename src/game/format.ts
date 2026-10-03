@@ -46,9 +46,10 @@ export function splitLabel(kind: SplitKind): string {
   return "Quarters";
 }
 
-export function scaleLabel(scale: "country" | "subregion" | "zoom"): string {
+export function scaleLabel(scale: "country" | "subregion" | "zoom" | "state"): string {
   if (scale === "country") return "Country";
   if (scale === "subregion") return "Region";
+  if (scale === "state") return "State";
   return "Close-up";
 }
 

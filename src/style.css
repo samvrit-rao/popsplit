@@ -191,6 +191,7 @@ a { color: inherit; }
 .accent-gold { border-left-color: var(--gold); }
 .accent-ink { border-left-color: var(--ink); }
 .accent-iris { border-left-color: var(--iris); }
+.accent-state { border-left-color: #2a6f97; }
 
 .footnote { margin-top: 28px; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
 

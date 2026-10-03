@@ -1,5 +1,7 @@
 import { parsePopulation } from "./population.ts";
-import type { CountryMeta, CountryShape, PoolItem, PopHeader } from "./types.ts";
+import { buildStates } from "./states.ts";
+import type { StateShape } from "./states.ts";
+import type { CountryMeta, CountryShape, GeoCollection, PoolItem, PopHeader } from "./types.ts";
 import { buildCountries, buildPool } from "./world.ts";
 
 export type GameData = {
@@ -7,16 +9,18 @@ export type GameData = {
   countries: CountryShape[];
   byId: Map<string, CountryShape>;
   pool: PoolItem[];
+  states: StateShape[];
 };
 
 export async function loadGameData(onProgress: (ratio: number, label: string) => void): Promise<GameData> {
   onProgress(0.08, "Loading borders and population");
   const base = import.meta.env.BASE_URL;
-  const [header, buffer, atlas, meta] = await Promise.all([
+  const [header, buffer, atlas, meta, stateAtlas] = await Promise.all([
     getJson<PopHeader>(asset(base, "data/population.json")),
     getBuffer(asset(base, "data/population.bin")),
     getJson<{ objects: { countries: object } }>(asset(base, "data/countries-50m.json")),
     getJson<CountryMeta[]>(asset(base, "data/country-meta.json")),
+    getJson<GeoCollection>(asset(base, "data/us-states.json")),
   ]);
   onProgress(0.28, "Placing cities inside borders");
   const grid = parsePopulation(header, buffer);
@@ -25,7 +29,9 @@ export async function loadGameData(onProgress: (ratio: number, label: string) =>
   });
   onProgress(0.96, "Laying out today's maps");
   const pool = buildPool(countries);
-  return { header, countries, byId: new Map(countries.map((country) => [country.id, country])), pool };
+  onProgress(0.98, "Placing cities inside states");
+  const states = buildStates(stateAtlas, grid);
+  return { header, countries, byId: new Map(countries.map((country) => [country.id, country])), pool, states };
 }
 
 function asset(base: string, path: string): string {

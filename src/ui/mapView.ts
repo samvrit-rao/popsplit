@@ -39,7 +39,7 @@ export function mountMap(
   const map = L.map(host, {
     zoomControl: false,
     attributionControl: false,
-    zoomSnap: 1,
+    zoomSnap: 0,
     dragging: false,
     scrollWheelZoom: false,
     doubleClickZoom: false,
@@ -53,10 +53,9 @@ export function mountMap(
     maxZoom: 19,
     crossOrigin: "anonymous",
   }).addTo(map);
-  const frame = frameOfFit(round.fit, round.cells);
+  const frame = frameOfFit(round.fit, round.cells, round.draw);
 
   let cut = initialCut(split);
-  let pieceOf: number[] | null = null;
   let ideal: Cut | null = null;
   let locked = false;
   let width = 0;
@@ -75,11 +74,12 @@ export function mountMap(
   };
 
   const frameRect = () => {
+    const east = frame.wraps ? frame.east + 360 : frame.east;
     const corners = [
       map.latLngToContainerPoint([frame.south, frame.west]),
-      map.latLngToContainerPoint([frame.south, frame.east]),
+      map.latLngToContainerPoint([frame.south, east]),
       map.latLngToContainerPoint([frame.north, frame.west]),
-      map.latLngToContainerPoint([frame.north, frame.east]),
+      map.latLngToContainerPoint([frame.north, east]),
     ];
     const xs = corners.map((point) => point.x);
     const ys = corners.map((point) => point.y);
@@ -97,30 +97,6 @@ export function mountMap(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     const box = frameRect();
-    const cells = projectCells();
-    const maxPop = cells.reduce((max, cell) => Math.max(max, cell.pop), 1);
-    const maxR = Math.max(5.5, Math.min(width, height) * 0.03);
-    ctx.save();
-    if (box.w > 2 && box.h > 2) {
-      ctx.beginPath();
-      ctx.rect(box.x, box.y, box.w, box.h);
-      ctx.clip();
-    }
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i]!;
-      const radius = Math.max(2.4, Math.sqrt(cell.pop / maxPop) * maxR);
-      const dot = pieceOf ? (PIECE_COLORS[pieceOf[i] ?? 0] ?? "#1d5c44") : "#1d5c44";
-      ctx.beginPath();
-      ctx.arc(cell.x, cell.y, radius, 0, Math.PI * 2);
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = dot;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1.25;
-      ctx.strokeStyle = "rgba(255,255,255,0.92)";
-      ctx.stroke();
-    }
-    ctx.restore();
     if (box.w > 2 && box.h > 2) {
       ctx.strokeStyle = "rgba(255,252,246,0.95)";
       ctx.lineWidth = 7;
@@ -263,7 +239,6 @@ export function mountMap(
   return {
     getSnapshot: () => ({ cells: projectCells(), cut: toPixels(cut, width, height), width, height }),
     showResult: (nextPieces, nextIdeal) => {
-      pieceOf = nextPieces;
       ideal = nextIdeal;
       locked = nextPieces != null;
       paintCanvas();
