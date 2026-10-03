@@ -1,0 +1,28 @@
+{
+  "name": "popsplit",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "postinstall": "node scripts/copy-atlas.mjs",
+    "data:places": "node scripts/build-population-from-places.mjs",
+    "data:gpw": "node scripts/build-population-from-gpw.mjs",
+    "data:meta": "node scripts/build-country-meta.mjs",
+    "test:score": "node --experimental-strip-types --no-warnings tests/scoring.test.ts && node --experimental-strip-types --no-warnings tests/evaluate.test.ts && node --experimental-strip-types --no-warnings tests/daily.test.ts",
+    "test:data": "node --experimental-strip-types --no-warnings tests/pool.test.ts",
+    "test": "npm run test:score && npm run test:data"
+  },
+  "dependencies": {
+    "d3-geo": "^3.1.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "geotiff": "^2.1.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  }
+}

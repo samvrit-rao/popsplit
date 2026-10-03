@@ -1,0 +1,24 @@
+{
+  "source": "Natural Earth 10m populated places",
+  "sourceDetail": "POP_MAX for each populated place, summed into a 0.25° cell. If that cell's center falls outside the coast, the count moves to the nearest inland cell center within 0.75°. Rural population is not included. This is the bundled fallback, not a census raster.",
+  "sourceUrl": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-populated-places/",
+  "downloadUrl": "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_populated_places.zip",
+  "license": "Natural Earth public domain",
+  "bounds": [
+    -180,
+    -90,
+    180,
+    90
+  ],
+  "cellSize": 0.25,
+  "width": 1440,
+  "height": 720,
+  "encoding": "float32",
+  "scale": 1,
+  "rowOrigin": "south",
+  "nonzeroCells": 7083,
+  "totalPopulation": 2370771906,
+  "placesUsed": 7298,
+  "placesSnappedInland": 749,
+  "placesSkipped": 44
+}
